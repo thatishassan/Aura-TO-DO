@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aura - Private Tasks</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark-theme">
+  <!-- App Container -->
+  <div class="app-container">
+    
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="app-logo">
+          <i class="ph ph-sparkle"></i>
+          <span>Aura</span>
+        </div>
+      </div>
+      
+      <div class="sidebar-content">
+        <div class="nav-section">
+          <h3 class="section-title">My Lists</h3>
+          <ul id="lists-container" class="lists-nav">
+            <!-- Lists will be injected here -->
+          </ul>
+          <button id="btn-new-list" class="action-btn text-btn mt-2">
+            <i class="ph ph-plus"></i> New List
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="main-header">
+        <div class="header-left">
+          <h1 id="current-list-title" class="list-title">My Tasks</h1>
+          <button id="btn-edit-list" class="icon-btn" title="Customize List">
+            <i class="ph ph-sliders-horizontal"></i>
+          </button>
+        </div>
+        <div class="header-right">
+          <button id="btn-theme-toggle" class="icon-btn" title="Toggle Theme">
+            <i class="ph ph-moon-stars"></i>
+          </button>
+        </div>
+      </header>
+
+      <div class="filters-bar">
+        <div class="priority-filters" id="priority-filters">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="high">High Priority</button>
+          <button class="filter-btn" data-filter="medium">Medium Priority</button>
+          <button class="filter-btn" data-filter="low">Low Priority</button>
+        </div>
+      </div>
+
+      <div class="tasks-container" id="tasks-container">
+        <!-- Tasks will be injected here -->
+      </div>
+
+      <button id="btn-add-task" class="fab" title="Add Task">
+        <i class="ph ph-plus"></i>
+      </button>
+    </main>
+  </div>
+
+  <!-- Add/Edit Task Modal -->
+  <div id="task-modal" class="modal-overlay hidden">
+    <div class="modal glass-panel">
+      <div class="modal-header">
+        <h2 id="task-modal-title">New Task</h2>
+        <button class="icon-btn close-modal"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="task-form">
+          <input type="hidden" id="task-id">
+          <div class="form-group">
+            <input type="text" id="task-title" placeholder="What needs to be done?" required autocomplete="off">
+          </div>
+          <div class="form-group">
+            <textarea id="task-notes" placeholder="Add some notes or description... (optional)" rows="3"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group half">
+              <label for="task-priority">Priority</label>
+              <select id="task-priority">
+                <option value="none">None</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div class="form-group half">
+              <label for="task-list">List</label>
+              <select id="task-list">
+                <!-- List options injected here -->
+              </select>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary close-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Task</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit List Modal -->
+  <div id="list-modal" class="modal-overlay hidden">
+    <div class="modal glass-panel">
+      <div class="modal-header">
+        <h2 id="list-modal-title">Create List</h2>
+        <button class="icon-btn close-modal"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="list-form">
+          <input type="hidden" id="list-id">
+          <div class="form-group">
+            <label for="list-name">List Name</label>
+            <input type="text" id="list-name" placeholder="e.g. Groceries, Project X" required autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label>Theme Color</label>
+            <div class="color-picker" id="list-color-picker">
+              <button type="button" class="color-swatch active" data-color="var(--accent-primary)" style="background: var(--accent-primary)"></button>
+              <button type="button" class="color-swatch" data-color="#FF6B6B" style="background: #FF6B6B"></button>
+              <button type="button" class="color-swatch" data-color="#4ECDC4" style="background: #4ECDC4"></button>
+              <button type="button" class="color-swatch" data-color="#FFE66D" style="background: #FFE66D"></button>
+              <button type="button" class="color-swatch" data-color="#9B5DE5" style="background: #9B5DE5"></button>
+              <button type="button" class="color-swatch" data-color="#F15BB5" style="background: #F15BB5"></button>
+              <button type="button" class="color-swatch" data-color="#00BBF9" style="background: #00BBF9"></button>
+              <button type="button" class="color-swatch" data-color="#00F5D4" style="background: #00F5D4"></button>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" id="btn-delete-list" class="btn btn-danger hidden">Delete List</button>
+            <div class="spacer"></div>
+            <button type="button" class="btn btn-secondary close-modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save List</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- View Task Modal (Apple Notes style deep dive) -->
+  <div id="view-task-modal" class="modal-overlay hidden fullscreen-modal">
+    <div class="modal glass-panel">
+      <div class="modal-header">
+        <div class="breadcrumbs" id="view-task-list-name">List Name</div>
+        <div class="header-actions">
+          <button id="btn-edit-task-full" class="icon-btn" title="Edit Task"><i class="ph ph-pencil-simple"></i></button>
+          <button id="btn-delete-task-full" class="icon-btn text-danger" title="Delete Task"><i class="ph ph-trash"></i></button>
+          <button class="icon-btn close-modal"><i class="ph ph-x"></i></button>
+        </div>
+      </div>
+      <div class="modal-body task-detail-body">
+        <div class="task-detail-header">
+          <label class="custom-checkbox large">
+            <input type="checkbox" id="view-task-checkbox">
+            <span class="checkmark"></span>
+          </label>
+          <h1 id="view-task-title" class="task-detail-title">Task Title</h1>
+        </div>
+        <div class="task-meta">
+          <span id="view-task-priority" class="priority-badge">High</span>
+        </div>
+        <div class="task-detail-notes">
+          <p id="view-task-notes">Notes will appear here...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
