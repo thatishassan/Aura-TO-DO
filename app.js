@@ -252,10 +252,15 @@ function renderTasks() {
       ${priorityHTML}
     `;
 
+    // Prevent click on checkbox from opening the modal
+    const checkboxLabel = el.querySelector('.custom-checkbox');
+    checkboxLabel.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
     // Checkbox event
     const checkbox = el.querySelector('.task-checkbox');
     checkbox.addEventListener('change', (e) => {
-      e.stopPropagation();
       task.completed = e.target.checked;
       saveData();
       renderTasks();
