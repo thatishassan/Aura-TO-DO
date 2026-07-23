@@ -12,6 +12,10 @@ let tasks = JSON.parse(localStorage.getItem('aura_tasks')) || [
 let currentListId = lists[0]?.id || null;
 let currentPriorityFilter = 'all';
 
+// Sync State
+let ghToken = localStorage.getItem('aura_gh_token') || '';
+let gistId = localStorage.getItem('aura_gist_id') || '';
+
 // DOM Elements
 const listsContainer = document.getElementById('lists-container');
 const tasksContainer = document.getElementById('tasks-container');
@@ -22,17 +26,25 @@ const priorityFilters = document.getElementById('priority-filters');
 const taskModal = document.getElementById('task-modal');
 const listModal = document.getElementById('list-modal');
 const viewTaskModal = document.getElementById('view-task-modal');
+const settingsModal = document.getElementById('settings-modal');
+
+// Mobile Sidebar
+const sidebar = document.getElementById('sidebar');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
+const btnMenu = document.getElementById('btn-menu');
 
 // Buttons
 const btnThemeToggle = document.getElementById('btn-theme-toggle');
 const btnNewList = document.getElementById('btn-new-list');
 const btnEditList = document.getElementById('btn-edit-list');
 const btnAddTask = document.getElementById('btn-add-task');
+const btnSync = document.getElementById('btn-sync');
 const closeButtons = document.querySelectorAll('.close-modal');
 
 // Forms
 const taskForm = document.getElementById('task-form');
 const listForm = document.getElementById('list-form');
+const settingsForm = document.getElementById('settings-form');
 
 // Initialization
 function init() {
@@ -42,16 +54,118 @@ function init() {
     document.body.classList.remove('dark-theme');
   }
   
-  // Render Data
-  renderLists();
-  renderTasks();
+  // Try to sync on load if configured
+  if (ghToken && gistId) {
+    syncFromGist();
+  } else {
+    renderLists();
+    renderTasks();
+  }
   setupEventListeners();
 }
 
 // Data Management
-function saveData() {
+function saveData(shouldSync = true) {
   localStorage.setItem('aura_lists', JSON.stringify(lists));
   localStorage.setItem('aura_tasks', JSON.stringify(tasks));
+  if (shouldSync && ghToken) {
+    syncToGist();
+  }
+}
+
+// ---------------------------
+// SYNC LOGIC (GitHub Gists)
+// ---------------------------
+async function syncToGist() {
+  if (!ghToken) return;
+  const statusEl = document.getElementById('sync-status');
+  if(statusEl) statusEl.textContent = 'Syncing...';
+  
+  const payload = {
+    lists: lists,
+    tasks: tasks
+  };
+
+  const fileData = {
+    "aura_sync_data.json": {
+      content: JSON.stringify(payload, null, 2)
+    }
+  };
+
+  try {
+    let url = gistId ? `https://api.github.com/gists/${gistId}` : 'https://api.github.com/gists';
+    let method = gistId ? 'PATCH' : 'POST';
+
+    const reqBody = {
+      description: "Aura To-Do App Sync Data",
+      files: fileData
+    };
+
+    if (!gistId) {
+      reqBody.public = false; // Make it a private gist if creating
+    }
+
+    const res = await fetch(url, {
+      method: method,
+      headers: {
+        'Authorization': `token ${ghToken}`,
+        'Accept': 'application/vnd.github.v3+json'
+      },
+      body: JSON.stringify(reqBody)
+    });
+
+    if (!res.ok) throw new Error('Failed to sync. Check token permissions.');
+    
+    const data = await res.json();
+    if (!gistId) {
+      gistId = data.id;
+      localStorage.setItem('aura_gist_id', gistId);
+    }
+    
+    if(statusEl) statusEl.textContent = 'Synced successfully!';
+    setTimeout(() => { if(statusEl) statusEl.textContent = ''; }, 3000);
+  } catch (error) {
+    console.error(error);
+    if(statusEl) statusEl.textContent = 'Sync failed. Invalid token?';
+  }
+}
+
+async function syncFromGist() {
+  if (!ghToken || !gistId) return;
+  try {
+    const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+      headers: {
+        'Authorization': `token ${ghToken}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (!res.ok) throw new Error('Failed to fetch gist.');
+    const data = await res.json();
+    
+    const fileContent = data.files['aura_sync_data.json']?.content;
+    if (fileContent) {
+      const parsed = JSON.parse(fileContent);
+      if (parsed.lists && parsed.tasks) {
+        lists = parsed.lists;
+        tasks = parsed.tasks;
+        
+        // Ensure current list still exists
+        if (!lists.find(l => l.id === currentListId)) {
+          currentListId = lists[0]?.id || null;
+        }
+        
+        // Save to local storage silently (without triggering syncToGist again)
+        localStorage.setItem('aura_lists', JSON.stringify(lists));
+        localStorage.setItem('aura_tasks', JSON.stringify(tasks));
+        
+        renderLists();
+        renderTasks();
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching from Gist:', error);
+  }
 }
 
 // Rendering Lists
@@ -74,6 +188,7 @@ function renderLists() {
       currentListId = list.id;
       renderLists(); // Update active state
       renderTasks();
+      closeMobileSidebar();
     });
     
     listsContainer.appendChild(li);
@@ -230,7 +345,7 @@ function openTaskModal(taskToEdit = null) {
     listSelect.appendChild(option);
   });
 
-  if (taskToEdit && !taskToEdit.type) { // Ensuring it's a task object, not an event
+  if (taskToEdit && !taskToEdit.type) { 
     document.getElementById('task-modal-title').textContent = "Edit Task";
     document.getElementById('task-id').value = taskToEdit.id;
     document.getElementById('task-title').value = taskToEdit.title;
@@ -264,7 +379,6 @@ function openListModal(listToEdit = null) {
       }
     });
 
-    // Cannot delete the only list
     if (lists.length > 1) {
       deleteBtn.classList.remove('hidden');
       deleteBtn.onclick = () => {
@@ -294,6 +408,28 @@ function openListModal(listToEdit = null) {
   openModal(listModal);
 }
 
+function openSettingsModal() {
+  document.getElementById('github-token').value = ghToken || '';
+  document.getElementById('gist-id').value = gistId || '';
+  document.getElementById('sync-status').textContent = '';
+  openModal(settingsModal);
+}
+
+// Mobile Sidebar Logic
+function openMobileSidebar() {
+  if (sidebar && sidebarOverlay) {
+    sidebar.classList.add('open');
+    sidebarOverlay.classList.add('visible');
+  }
+}
+
+function closeMobileSidebar() {
+  if (sidebar && sidebarOverlay) {
+    sidebar.classList.remove('open');
+    sidebarOverlay.classList.remove('visible');
+  }
+}
+
 // Event Listeners Setup
 function setupEventListeners() {
   btnThemeToggle.addEventListener('click', () => {
@@ -301,6 +437,14 @@ function setupEventListeners() {
     const isDark = document.body.classList.contains('dark-theme');
     localStorage.setItem('aura_theme', isDark ? 'dark' : 'light');
   });
+
+  // Mobile Menu
+  if(btnMenu) {
+    btnMenu.addEventListener('click', openMobileSidebar);
+  }
+  if(sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', closeMobileSidebar);
+  }
 
   // Filters
   priorityFilters.addEventListener('click', (e) => {
@@ -319,6 +463,19 @@ function setupEventListeners() {
     const list = lists.find(l => l.id === currentListId);
     if (list) openListModal(list);
   });
+  if(btnSync) {
+    btnSync.addEventListener('click', () => {
+      if (ghToken && gistId) {
+        // Force a manual pull sync if already configured
+        const statusEl = document.getElementById('sync-status');
+        if(statusEl) statusEl.textContent = 'Pulling...';
+        syncFromGist().then(() => {
+          if(statusEl) statusEl.textContent = 'Pulled successfully.';
+        });
+      }
+      openSettingsModal();
+    });
+  }
 
   closeButtons.forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -367,7 +524,6 @@ function setupEventListeners() {
 
     saveData();
     closeModal(taskModal);
-    // If they moved task to another list or changed list, we update view
     if(listId !== currentListId) {
        currentListId = listId;
     }
@@ -381,12 +537,8 @@ function setupEventListeners() {
     const name = document.getElementById('list-name').value.trim();
     const colorSwatch = document.querySelector('.color-swatch.active');
     
-    // Resolve CSS variable if needed, but color swatch data-color is absolute except first one
     let color = colorSwatch ? colorSwatch.dataset.color : '#6366f1';
-    if(color.startsWith('var(')) {
-        // Just hardcode the default indigo since it's the first swatch
-        color = '#6366f1';
-    }
+    if(color.startsWith('var(')) color = '#6366f1';
 
     if (!name) return;
 
@@ -404,7 +556,7 @@ function setupEventListeners() {
         id: newListId,
         name,
         color,
-        icon: 'ph-list' // default icon
+        icon: 'ph-list'
       });
       currentListId = newListId;
     }
@@ -413,6 +565,31 @@ function setupEventListeners() {
     closeModal(listModal);
     renderLists();
     renderTasks();
+  });
+
+  settingsForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    ghToken = document.getElementById('github-token').value.trim();
+    gistId = document.getElementById('gist-id').value.trim();
+    
+    localStorage.setItem('aura_gh_token', ghToken);
+    localStorage.setItem('aura_gist_id', gistId);
+    
+    const statusEl = document.getElementById('sync-status');
+    statusEl.textContent = 'Saving...';
+    
+    if (ghToken && !gistId) {
+      // Push first time to create
+      await syncToGist();
+      // gistId should now be populated
+      document.getElementById('gist-id').value = gistId; 
+    } else if (ghToken && gistId) {
+      // Pull first time to get remote data
+      await syncFromGist();
+    }
+    
+    statusEl.textContent = 'Configuration Saved!';
+    setTimeout(() => { closeModal(settingsModal); }, 1000);
   });
 }
 
