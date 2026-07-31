@@ -39,6 +39,7 @@ const btnNewList = document.getElementById('btn-new-list');
 const btnEditList = document.getElementById('btn-edit-list');
 const btnAddTask = document.getElementById('btn-add-task');
 const btnSync = document.getElementById('btn-sync');
+const btnClearCompleted = document.getElementById('btn-clear-completed');
 const closeButtons = document.querySelectorAll('.close-modal');
 
 // Forms
@@ -102,7 +103,7 @@ async function syncToGist() {
     };
 
     if (!gistId) {
-      reqBody.public = false; // Make it a private gist if creating
+      reqBody.public = false; 
     }
 
     const res = await fetch(url, {
@@ -150,12 +151,10 @@ async function syncFromGist() {
         lists = parsed.lists;
         tasks = parsed.tasks;
         
-        // Ensure current list still exists
         if (!lists.find(l => l.id === currentListId)) {
           currentListId = lists[0]?.id || null;
         }
         
-        // Save to local storage silently (without triggering syncToGist again)
         localStorage.setItem('aura_lists', JSON.stringify(lists));
         localStorage.setItem('aura_tasks', JSON.stringify(tasks));
         
@@ -168,6 +167,23 @@ async function syncFromGist() {
   }
 }
 
+// Helpers
+function formatDateTime(dateStr, timeStr) {
+  if (!dateStr) return '';
+  const d = new Date(`${dateStr}T${timeStr || '00:00'}`);
+  return d.toLocaleString(undefined, { 
+    month: 'short', day: 'numeric', 
+    hour: timeStr ? 'numeric' : undefined, 
+    minute: timeStr ? '2-digit' : undefined 
+  });
+}
+
+function isOverdue(dateStr, timeStr) {
+  if (!dateStr) return false;
+  const target = new Date(`${dateStr}T${timeStr || '23:59'}`);
+  return target < new Date();
+}
+
 // Rendering Lists
 function renderLists() {
   listsContainer.innerHTML = '';
@@ -175,25 +191,53 @@ function renderLists() {
     const li = document.createElement('li');
     li.className = `list-item ${list.id === currentListId ? 'active' : ''}`;
     li.style.setProperty('--list-color', list.color);
+    li.dataset.id = list.id;
+    li.draggable = true;
     
     const taskCount = tasks.filter(t => t.listId === list.id && !t.completed).length;
 
     li.innerHTML = `
+      <div class="drag-handle" style="margin-right: 8px;"><i class="ph ph-dots-six-vertical"></i></div>
       <i class="ph ${list.icon || 'ph-list'}"></i>
-      <span>${list.name}</span>
+      <span style="flex-grow: 1;">${list.name}</span>
       <span class="task-count">${taskCount}</span>
     `;
     
-    li.addEventListener('click', () => {
+    li.addEventListener('click', (e) => {
+      // Don't trigger if clicked on drag handle
+      if (e.target.closest('.drag-handle')) return;
       currentListId = list.id;
-      renderLists(); // Update active state
+      renderLists();
       renderTasks();
       closeMobileSidebar();
+    });
+
+    // Drag events for lists
+    li.addEventListener('dragstart', () => {
+      li.classList.add('dragging');
+    });
+    li.addEventListener('dragend', () => {
+      li.classList.remove('dragging');
+      saveListOrder();
     });
     
     listsContainer.appendChild(li);
   });
   
+  // List Container Drag Over
+  listsContainer.addEventListener('dragover', e => {
+    e.preventDefault();
+    const afterElement = getDragAfterElement(listsContainer, e.clientY);
+    const draggable = document.querySelector('.list-item.dragging');
+    if (draggable) {
+      if (afterElement == null) {
+        listsContainer.appendChild(draggable);
+      } else {
+        listsContainer.insertBefore(draggable, afterElement);
+      }
+    }
+  });
+
   // Update Header based on current list
   const currentList = lists.find(l => l.id === currentListId);
   if (currentList) {
@@ -202,6 +246,19 @@ function renderLists() {
   } else {
     currentListTitle.textContent = "My Tasks";
     document.documentElement.style.setProperty('--accent-primary', '#6366f1');
+  }
+}
+
+function saveListOrder() {
+  const listEls = [...listsContainer.querySelectorAll('.list-item')];
+  const newLists = [];
+  listEls.forEach(el => {
+    const found = lists.find(l => l.id === el.dataset.id);
+    if(found) newLists.push(found);
+  });
+  if(newLists.length === lists.length) {
+    lists = newLists;
+    saveData();
   }
 }
 
@@ -215,13 +272,19 @@ function renderTasks() {
     filteredTasks = filteredTasks.filter(t => t.priority === currentPriorityFilter);
   }
   
-  // Sort: Incomplete first, then by creation date
-  filteredTasks.sort((a, b) => {
-    if (a.completed !== b.completed) return a.completed ? 1 : -1;
-    return b.createdAt - a.createdAt;
-  });
+  // We keep the manual order, but force completed tasks to the bottom
+  const incompleteTasks = filteredTasks.filter(t => !t.completed);
+  const completedTasks = filteredTasks.filter(t => t.completed);
+  const displayTasks = [...incompleteTasks, ...completedTasks];
 
-  if (filteredTasks.length === 0) {
+  // Show/Hide clear completed button
+  if(completedTasks.length > 0) {
+    btnClearCompleted.classList.remove('hidden');
+  } else {
+    btnClearCompleted.classList.add('hidden');
+  }
+
+  if (displayTasks.length === 0) {
     tasksContainer.innerHTML = `
       <div class="empty-state animate-slide-in">
         <i class="ph ph-check-circle"></i>
@@ -231,16 +294,37 @@ function renderTasks() {
     return;
   }
 
-  filteredTasks.forEach((task, index) => {
+  displayTasks.forEach((task, index) => {
     const el = document.createElement('div');
     el.className = `task-item animate-slide-in ${task.completed ? 'completed' : ''}`;
     el.style.animationDelay = `${index * 0.05}s`;
+    el.dataset.id = task.id;
     
+    // Only allow drag and drop if filter is 'all'
+    if (currentPriorityFilter === 'all') {
+      el.draggable = true;
+      el.addEventListener('dragstart', () => {
+        el.classList.add('dragging');
+      });
+      el.addEventListener('dragend', () => {
+        el.classList.remove('dragging');
+        saveTaskOrder();
+      });
+    }
+
     const priorityHTML = task.priority !== 'none' 
       ? `<div class="priority-indicator priority-${task.priority}"></div>` 
       : '';
+      
+    let dateTimeHTML = '';
+    if (task.dueDate) {
+      const formatted = formatDateTime(task.dueDate, task.dueTime);
+      const overdueClass = (!task.completed && isOverdue(task.dueDate, task.dueTime)) ? 'overdue' : '';
+      dateTimeHTML = `<div class="datetime-badge ${overdueClass}" style="margin-top:4px;"><i class="ph ph-calendar"></i> ${formatted}</div>`;
+    }
 
     el.innerHTML = `
+      ${currentPriorityFilter === 'all' ? '<div class="drag-handle"><i class="ph ph-dots-six-vertical"></i></div>' : ''}
       <label class="custom-checkbox">
         <input type="checkbox" class="task-checkbox" ${task.completed ? 'checked' : ''}>
         <span class="checkmark"></span>
@@ -248,6 +332,7 @@ function renderTasks() {
       <div class="task-content">
         <div class="task-title">${task.title}</div>
         ${task.notes ? `<div class="task-subtitle">${task.notes}</div>` : ''}
+        ${dateTimeHTML}
       </div>
       ${priorityHTML}
     `;
@@ -268,12 +353,56 @@ function renderTasks() {
     });
 
     // View task event
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.drag-handle')) return;
       openViewTaskModal(task);
     });
 
     tasksContainer.appendChild(el);
   });
+  
+  // Tasks Container Drag Over
+  if (currentPriorityFilter === 'all') {
+    tasksContainer.addEventListener('dragover', e => {
+      e.preventDefault();
+      const afterElement = getDragAfterElement(tasksContainer, e.clientY);
+      const draggable = document.querySelector('.task-item.dragging');
+      if (draggable) {
+        if (afterElement == null) {
+          tasksContainer.appendChild(draggable);
+        } else {
+          tasksContainer.insertBefore(draggable, afterElement);
+        }
+      }
+    });
+  }
+}
+
+function saveTaskOrder() {
+  const taskEls = [...tasksContainer.querySelectorAll('.task-item')];
+  const newOrderIds = taskEls.map(el => el.dataset.id);
+  
+  // Reconstruct tasks array based on the new visual order for current list
+  const currentListTasks = newOrderIds.map(id => tasks.find(t => t.id === id)).filter(Boolean);
+  const otherTasks = tasks.filter(t => t.listId !== currentListId);
+  
+  tasks = [...currentListTasks, ...otherTasks];
+  saveData();
+  renderTasks(); // Re-render to ensure completed tasks still fall to bottom logic applies correctly visually
+}
+
+function getDragAfterElement(container, y) {
+  const draggableElements = [...container.querySelectorAll(':scope > div:not(.dragging), :scope > li:not(.dragging)')];
+
+  return draggableElements.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) {
+      return { offset: offset, element: child };
+    } else {
+      return closest;
+    }
+  }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
 // View Task Details
@@ -299,6 +428,17 @@ function openViewTaskModal(task) {
     priorityBadge.style.display = 'inline-block';
   } else {
     priorityBadge.style.display = 'none';
+  }
+  
+  const dtBadge = document.getElementById('view-task-datetime');
+  if (task.dueDate) {
+    const formatted = formatDateTime(task.dueDate, task.dueTime);
+    const overdueClass = (!task.completed && isOverdue(task.dueDate, task.dueTime)) ? 'overdue' : '';
+    dtBadge.querySelector('.dt-text').textContent = formatted;
+    dtBadge.className = `datetime-badge ${overdueClass}`;
+    dtBadge.style.display = 'inline-flex';
+  } else {
+    dtBadge.style.display = 'none';
   }
 
   const checkbox = document.getElementById('view-task-checkbox');
@@ -357,6 +497,8 @@ function openTaskModal(taskToEdit = null) {
     document.getElementById('task-notes').value = taskToEdit.notes || '';
     document.getElementById('task-priority').value = taskToEdit.priority || 'none';
     document.getElementById('task-list').value = taskToEdit.listId;
+    document.getElementById('task-date').value = taskToEdit.dueDate || '';
+    document.getElementById('task-time').value = taskToEdit.dueTime || '';
   } else {
     document.getElementById('task-modal-title').textContent = "New Task";
     taskForm.reset();
@@ -461,6 +603,18 @@ function setupEventListeners() {
     }
   });
 
+  // Bulk Delete
+  if(btnClearCompleted) {
+    btnClearCompleted.addEventListener('click', () => {
+      if(confirm('Are you sure you want to permanently delete all completed tasks in this list?')) {
+        tasks = tasks.filter(t => !(t.listId === currentListId && t.completed));
+        saveData();
+        renderTasks();
+        renderLists();
+      }
+    });
+  }
+
   // Buttons -> Modals
   btnAddTask.addEventListener('click', openTaskModal);
   btnNewList.addEventListener('click', openListModal);
@@ -471,7 +625,6 @@ function setupEventListeners() {
   if(btnSync) {
     btnSync.addEventListener('click', () => {
       if (ghToken && gistId) {
-        // Force a manual pull sync if already configured
         const statusEl = document.getElementById('sync-status');
         if(statusEl) statusEl.textContent = 'Pulling...';
         syncFromGist().then(() => {
@@ -505,6 +658,8 @@ function setupEventListeners() {
     const notes = document.getElementById('task-notes').value.trim();
     const priority = document.getElementById('task-priority').value;
     const listId = document.getElementById('task-list').value;
+    const dueDate = document.getElementById('task-date').value;
+    const dueTime = document.getElementById('task-time').value;
 
     if (!title) return;
 
@@ -512,7 +667,7 @@ function setupEventListeners() {
       // Edit
       const taskIndex = tasks.findIndex(t => t.id === id);
       if (taskIndex > -1) {
-        tasks[taskIndex] = { ...tasks[taskIndex], title, notes, priority, listId };
+        tasks[taskIndex] = { ...tasks[taskIndex], title, notes, priority, listId, dueDate, dueTime };
       }
     } else {
       // Add
@@ -522,6 +677,8 @@ function setupEventListeners() {
         notes,
         priority,
         listId,
+        dueDate,
+        dueTime,
         completed: false,
         createdAt: Date.now()
       });
@@ -584,12 +741,9 @@ function setupEventListeners() {
     statusEl.textContent = 'Saving...';
     
     if (ghToken && !gistId) {
-      // Push first time to create
       await syncToGist();
-      // gistId should now be populated
       document.getElementById('gist-id').value = gistId; 
     } else if (ghToken && gistId) {
-      // Pull first time to get remote data
       await syncFromGist();
     }
     

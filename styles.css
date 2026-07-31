@@ -550,6 +550,8 @@ label {
 }
 
 input[type="text"],
+input[type="date"],
+input[type="time"],
 textarea,
 select {
   width: 100%;
@@ -564,12 +566,16 @@ select {
 }
 
 .dark-theme input[type="text"],
+.dark-theme input[type="date"],
+.dark-theme input[type="time"],
 .dark-theme textarea,
 .dark-theme select {
   background: rgba(255, 255, 255, 0.05);
 }
 
 input[type="text"]:focus,
+input[type="date"]:focus,
+input[type="time"]:focus,
 textarea:focus,
 select:focus {
   outline: none;
@@ -779,3 +785,55 @@ textarea {
     padding: 24px;
   }
 }
+
+/* --- V2 FEATURES (Drag & Drop, Extra Buttons) --- */
+.btn-danger-text {
+  color: var(--danger);
+  opacity: 0.8;
+  padding: 6px 12px;
+}
+
+.btn-danger-text:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger);
+}
+
+.datetime-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: var(--panel-border);
+  color: var(--text-secondary);
+}
+
+.datetime-badge.overdue {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger);
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  transition: opacity 0.2s;
+  display: flex;
+  align-items: center;
+}
+.drag-handle:hover {
+  opacity: 1;
+}
+
+.dragging {
+  opacity: 0.4;
+}
+
+.drag-over {
+  border: 2px dashed var(--accent-primary) !important;
+  transform: scale(1.02);
+}
+
